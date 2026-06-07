@@ -1,4 +1,4 @@
-﻿const STORAGE_KEY = "left_keep_memo_v1";
+const STORAGE_KEY = "left_keep_memo_v1";
 
 let notes = [];
 let currentId = null;
@@ -161,6 +161,7 @@ function setupVoiceInput(){
   if(!SpeechRecognition){
     micBtn.disabled = true;
     micBtn.textContent = "×";
+    alert("このブラウザは音声入力に対応していません");
     return;
   }
 
@@ -173,30 +174,45 @@ function setupVoiceInput(){
     isRecording = true;
     micBtn.classList.add("recording");
     micBtn.textContent = "■";
+    console.log("音声入力開始");
   };
 
   recognition.onend = () => {
     isRecording = false;
     micBtn.classList.remove("recording");
     micBtn.textContent = "🎤";
+    console.log("音声入力終了");
   };
 
-  recognition.onerror = () => {
+  recognition.onerror = event => {
+    console.log("音声入力エラー", event.error);
     stopVoiceInput();
   };
 
   recognition.onresult = event => {
     let finalText = "";
+    let interimText = "";
 
     for(let i = event.resultIndex; i < event.results.length; i++){
+      const text = event.results[i][0].transcript;
+
       if(event.results[i].isFinal){
-        finalText += event.results[i][0].transcript;
+        finalText += text;
+      }else{
+        interimText += text;
       }
     }
 
+    console.log("途中:", interimText);
+    console.log("確定:", finalText);
+
     if(finalText){
-      const before = bodyInput.value;
-      bodyInput.value = before ? before + "\n" + finalText : finalText;
+      const before = bodyInput.value.trim();
+
+      bodyInput.value = before
+        ? before + "\n" + finalText
+        : finalText;
+
       scheduleAutoSave();
     }
   };
@@ -204,7 +220,7 @@ function setupVoiceInput(){
 
 function startVoiceInput(){
   if(!recognition){
-    alert("このブラウザは音声入力に対応していません");
+    alert("音声入力機能が使えません");
     return;
   }
 
@@ -213,6 +229,7 @@ function startVoiceInput(){
   try{
     recognition.start();
   }catch(e){
+    console.log("start error", e);
   }
 }
 
