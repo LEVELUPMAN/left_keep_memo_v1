@@ -1,5 +1,3 @@
-alert("app.js最新");
-
 const STORAGE_KEY = "left_keep_memo_v1";
 
 let notes = [];
@@ -157,6 +155,26 @@ function createCard(note){
   return card;
 }
 
+function insertTextToBody(text){
+  const cleanText = text.trim();
+
+  if(!cleanText){
+    console.log("空文字のため挿入なし");
+    return;
+  }
+
+  const before = bodyInput.value.trim();
+
+  bodyInput.value = before
+    ? before + "\n" + cleanText
+    : cleanText;
+
+  bodyInput.focus();
+  scheduleAutoSave();
+
+  console.log("本文へ挿入:", cleanText);
+}
+
 function setupVoiceInput(){
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -171,7 +189,7 @@ function setupVoiceInput(){
 
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
-  recognition.continuous = true;
+  recognition.continuous = false;
   recognition.interimResults = true;
   recognition.maxAlternatives = 1;
 
@@ -191,8 +209,10 @@ function setupVoiceInput(){
 
   recognition.onerror = event => {
     console.log("音声入力エラー:", event.error);
-    alert("音声入力エラー: " + event.error);
-    stopVoiceInput();
+
+    isRecording = false;
+    micBtn.classList.remove("recording");
+    micBtn.textContent = "🎤";
   };
 
   recognition.onaudiostart = () => {
@@ -225,31 +245,35 @@ function setupVoiceInput(){
 
   recognition.onresult = event => {
     console.log("onresult発火", event);
+    console.log("event.results:", event.results);
 
     let finalText = "";
     let interimText = "";
 
     for(let i = event.resultIndex; i < event.results.length; i++){
-      const text = event.results[i][0].transcript;
+      const result = event.results[i];
+      const transcript = result[0].transcript;
 
-      if(event.results[i].isFinal){
-        finalText += text;
+      console.log("認識結果:", transcript);
+      console.log("isFinal:", result.isFinal);
+
+      if(result.isFinal){
+        finalText += transcript;
       }else{
-        interimText += text;
+        interimText += transcript;
       }
     }
 
     console.log("途中:", interimText);
     console.log("確定:", finalText);
 
-    if(finalText){
-      const before = bodyInput.value.trim();
+    if(finalText.trim()){
+      insertTextToBody(finalText);
+      return;
+    }
 
-      bodyInput.value = before
-        ? before + "\n" + finalText
-        : finalText;
-
-      scheduleAutoSave();
+    if(interimText.trim()){
+      console.log("途中結果を一時表示:", interimText);
     }
   };
 }
