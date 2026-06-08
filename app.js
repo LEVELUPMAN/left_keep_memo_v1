@@ -2,10 +2,12 @@ const GAS_API_URL = "https://script.google.com/macros/s/AKfycbx0sqRtjVr1X7tNjUTG
 
 let notes = [];
 let currentId = null;
+let currentNoteRef = null;
 let saveTimer = null;
 let recognition = null;
 let isRecording = false;
 let saving = false;
+let pendingSave = false;
 
 const listScreen = document.getElementById("listScreen");
 const editScreen = document.getElementById("editScreen");
@@ -20,9 +22,23 @@ const deleteBtn = document.getElementById("deleteBtn");
 const titleInput = document.getElementById("titleInput");
 const bodyInput = document.getElementById("bodyInput");
 
+function createClientId() {
+  if (window.crypto && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  return "id_" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
+}
+
 function jsonp(action, params = {}) {
   return new Promise((resolve, reject) => {
-    const callbackName = "jsonpCallback_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
+    const callbackName =
+      "jsonpCallback_" +
+      Date.now() +
+      "_" +
+      Math.floor(Math.random() * 100000);
+
+    const script = document.createElement("script");
 
     window[callbackName] = data => {
       delete window[callbackName];
@@ -38,7 +54,6 @@ function jsonp(action, params = {}) {
       url.searchParams.set(key, params[key]);
     });
 
-    const script = document.createElement("script");
     script.src = url.toString();
 
     script.onerror = () => {
@@ -52,6 +67,8 @@ function jsonp(action, params = {}) {
 }
 
 async function apiGetNotes() {
+  console.log("読み込み中");
+
   const data = await jsonp("getNotes");
 
   if (!data.success) {
@@ -60,12 +77,20 @@ async function apiGetNotes() {
 
   notes = data.notes || [];
   renderNotes();
+
+  console.log("同期済み");
 }
 
 async function apiSaveNote(note) {
-  if (saving) return;
+  if (!note) return;
+
+  if (saving) {
+    pendingSave = true;
+    return;
+  }
 
   saving = true;
+  pendingSave = false;
 
   try {
     const data = await jsonp("saveNote", {
@@ -76,14 +101,26 @@ async function apiSaveNote(note) {
       throw new Error(data.message || "保存失敗");
     }
 
-    note.id = data.id;
-    note.createdAt = data.createdAt;
-    note.updatedAt = data.updatedAt;
-    currentId = data.id;
+    note.id = data.id || note.id;
+    note.createdAt = data.createdAt || note.createdAt;
+    note.updatedAt = data.updatedAt || note.updatedAt;
+
+    currentId = note.id;
+    currentNoteRef = note;
 
     renderNotes();
+
+    console.log("保存済み", note.id);
   } finally {
     saving = false;
+
+    if (pendingSave) {
+      pendingSave = false;
+      apiSaveNote(currentNoteRef).catch(error => {
+        console.error(error);
+        alert("再保存失敗: " + error.message);
+      });
+    }
   }
 }
 
@@ -98,11 +135,13 @@ async function apiDeleteNote(id) {
 
   notes = notes.filter(note => note.id !== id);
   renderNotes();
+
+  console.log("削除済み", id);
 }
 
 function createNote() {
   const note = {
-    id: "",
+    id: createClientId(),
     title: "",
     body: "",
     pinned: false,
@@ -116,7 +155,8 @@ function createNote() {
 }
 
 function openEditor(note) {
-  currentId = note.id || "";
+  currentNoteRef = note;
+  currentId = note.id;
 
   titleInput.value = note.title || "";
   bodyInput.value = note.body || "";
@@ -129,12 +169,19 @@ function openEditor(note) {
 }
 
 function getCurrentNote() {
-  if (currentId) {
-    const found = notes.find(note => note.id === currentId);
-    if (found) return found;
+  if (currentNoteRef) {
+    return currentNoteRef;
   }
 
-  return notes[0];
+  if (currentId) {
+    const found = notes.find(note => note.id === currentId);
+    if (found) {
+      currentNoteRef = found;
+      return found;
+    }
+  }
+
+  return null;
 }
 
 function closeEditor() {
@@ -197,7 +244,13 @@ function deleteCurrentNote() {
     alert("削除失敗: " + error.message);
   });
 
-  closeEditor();
+  currentId = null;
+  currentNoteRef = null;
+
+  editScreen.classList.remove("active");
+  listScreen.classList.add("active");
+
+  renderNotes();
 }
 
 function renderNotes() {
@@ -209,18 +262,26 @@ function renderNotes() {
       const text = `${note.title || ""} ${note.body || ""}`.toLowerCase();
       return text.includes(keyword);
     })
-    .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+    .sort((a, b) => {
+      const aa = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bb = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return bb - aa;
+    });
 
   pinnedNotes.innerHTML = "";
   normalNotes.innerHTML = "";
 
-  visible.filter(note => note.pinned).forEach(note => {
-    pinnedNotes.appendChild(createCard(note));
-  });
+  visible
+    .filter(note => note.pinned)
+    .forEach(note => {
+      pinnedNotes.appendChild(createCard(note));
+    });
 
-  visible.filter(note => !note.pinned).forEach(note => {
-    normalNotes.appendChild(createCard(note));
-  });
+  visible
+    .filter(note => !note.pinned)
+    .forEach(note => {
+      normalNotes.appendChild(createCard(note));
+    });
 }
 
 function createCard(note) {
@@ -258,7 +319,8 @@ function insertTextToBody(text) {
 }
 
 function setupVoiceInput() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (!SpeechRecognition) {
     micBtn.disabled = true;
