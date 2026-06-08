@@ -1,3 +1,5 @@
+alert("app.js最新");
+
 const STORAGE_KEY = "left_keep_memo_v1";
 
 let notes = [];
@@ -158,6 +160,8 @@ function createCard(note){
 function setupVoiceInput(){
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+  console.log("SpeechRecognition:", SpeechRecognition);
+
   if(!SpeechRecognition){
     micBtn.disabled = true;
     micBtn.textContent = "×";
@@ -169,6 +173,7 @@ function setupVoiceInput(){
   recognition.lang = "ja-JP";
   recognition.continuous = true;
   recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
 
   recognition.onstart = () => {
     isRecording = true;
@@ -185,11 +190,42 @@ function setupVoiceInput(){
   };
 
   recognition.onerror = event => {
-    console.log("音声入力エラー", event.error);
+    console.log("音声入力エラー:", event.error);
+    alert("音声入力エラー: " + event.error);
     stopVoiceInput();
   };
 
+  recognition.onaudiostart = () => {
+    console.log("音声入力デバイス開始");
+  };
+
+  recognition.onaudioend = () => {
+    console.log("音声入力デバイス終了");
+  };
+
+  recognition.onsoundstart = () => {
+    console.log("音を検知しました");
+  };
+
+  recognition.onsoundend = () => {
+    console.log("音が終了しました");
+  };
+
+  recognition.onspeechstart = () => {
+    console.log("音声を検知しました");
+  };
+
+  recognition.onspeechend = () => {
+    console.log("音声が終了しました");
+  };
+
+  recognition.onnomatch = () => {
+    console.log("認識できませんでした");
+  };
+
   recognition.onresult = event => {
+    console.log("onresult発火", event);
+
     let finalText = "";
     let interimText = "";
 
@@ -227,14 +263,16 @@ function startVoiceInput(){
   bodyInput.focus();
 
   try{
+    console.log("recognition.start 実行");
     recognition.start();
   }catch(e){
-    console.log("start error", e);
+    console.log("start error:", e);
   }
 }
 
 function stopVoiceInput(){
   if(recognition && isRecording){
+    console.log("recognition.stop 実行");
     recognition.stop();
   }
 }
