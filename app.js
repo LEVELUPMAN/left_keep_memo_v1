@@ -19,40 +19,59 @@ const deleteBtn = document.getElementById("deleteBtn");
 const titleInput = document.getElementById("titleInput");
 const bodyInput = document.getElementById("bodyInput");
 
-function setStatus(text){
-  console.log(text);
+function jsonp(action, params = {}) {
+  return new Promise((resolve, reject) => {
+    const callbackName = "jsonpCallback_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
+
+    window[callbackName] = data => {
+      delete window[callbackName];
+      script.remove();
+      resolve(data);
+    };
+
+    const url = new URL(GAS_API_URL);
+    url.searchParams.set("action", action);
+    url.searchParams.set("callback", callbackName);
+
+    Object.keys(params).forEach(key => {
+      url.searchParams.set(key, params[key]);
+    });
+
+    const script = document.createElement("script");
+    script.src = url.toString();
+    script.onerror = () => {
+      delete window[callbackName];
+      script.remove();
+      reject(new Error("JSONP通信失敗"));
+    };
+
+    document.body.appendChild(script);
+  });
 }
 
-async function apiGetNotes(){
-  setStatus("読み込み中");
+async function apiGetNotes() {
+  console.log("読み込み中");
 
-  const res = await fetch(GAS_API_URL + "?action=getNotes");
-  const data = await res.json();
+  const data = await jsonp("getNotes");
 
-  if(!data.success){
+  if (!data.success) {
     throw new Error(data.message || "読み込み失敗");
   }
 
   notes = data.notes || [];
   renderNotes();
 
-  setStatus("同期済み");
+  console.log("同期済み");
 }
 
-async function apiSaveNote(note){
-  setStatus("保存中");
+async function apiSaveNote(note) {
+  console.log("保存中");
 
-  const res = await fetch(GAS_API_URL,{
-    method:"POST",
-    body:JSON.stringify({
-      action:"saveNote",
-      note:note
-    })
+  const data = await jsonp("saveNote", {
+    note: JSON.stringify(note)
   });
 
-  const data = await res.json();
-
-  if(!data.success){
+  if (!data.success) {
     throw new Error(data.message || "保存失敗");
   }
 
@@ -60,50 +79,45 @@ async function apiSaveNote(note){
   note.updatedAt = data.updatedAt;
 
   renderNotes();
-  setStatus("保存済み");
+
+  console.log("保存済み");
 }
 
-async function apiDeleteNote(id){
-  setStatus("削除中");
+async function apiDeleteNote(id) {
+  console.log("削除中");
 
-  const res = await fetch(GAS_API_URL,{
-    method:"POST",
-    body:JSON.stringify({
-      action:"deleteNote",
-      id:id
-    })
+  const data = await jsonp("deleteNote", {
+    id: id
   });
 
-  const data = await res.json();
-
-  if(!data.success){
+  if (!data.success) {
     throw new Error(data.message || "削除失敗");
   }
 
   notes = notes.filter(note => note.id !== id);
   renderNotes();
 
-  setStatus("削除済み");
+  console.log("削除済み");
 }
 
-function createNote(){
+function createNote() {
   const now = new Date().toISOString();
 
   const note = {
-    id:"",
-    title:"",
-    body:"",
-    pinned:false,
-    deleted:false,
-    createdAt:now,
-    updatedAt:now
+    id: "",
+    title: "",
+    body: "",
+    pinned: false,
+    deleted: false,
+    createdAt: now,
+    updatedAt: now
   };
 
   notes.unshift(note);
   openEditor(note);
 }
 
-function openEditor(note){
+function openEditor(note) {
   currentId = note.id || "";
 
   titleInput.value = note.title || "";
@@ -113,18 +127,18 @@ function openEditor(note){
   listScreen.classList.remove("active");
   editScreen.classList.add("active");
 
-  setTimeout(() => bodyInput.focus(),120);
+  setTimeout(() => bodyInput.focus(), 120);
 }
 
-function getCurrentNote(){
-  if(currentId){
+function getCurrentNote() {
+  if (currentId) {
     return notes.find(note => note.id === currentId);
   }
 
   return notes[0];
 }
 
-function closeEditor(){
+function closeEditor() {
   autoSaveNow();
   stopVoiceInput();
 
@@ -135,10 +149,10 @@ function closeEditor(){
   renderNotes();
 }
 
-function autoSaveNow(){
+function autoSaveNow() {
   const note = getCurrentNote();
 
-  if(!note) return;
+  if (!note) return;
 
   note.title = titleInput.value.trim();
   note.body = bodyInput.value.trim();
@@ -150,15 +164,15 @@ function autoSaveNow(){
   });
 }
 
-function scheduleAutoSave(){
+function scheduleAutoSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(autoSaveNow,800);
+  saveTimer = setTimeout(autoSaveNow, 800);
 }
 
-function togglePin(){
+function togglePin() {
   const note = getCurrentNote();
 
-  if(!note) return;
+  if (!note) return;
 
   note.pinned = !note.pinned;
   note.updatedAt = new Date().toISOString();
@@ -171,12 +185,12 @@ function togglePin(){
   });
 }
 
-function deleteCurrentNote(){
+function deleteCurrentNote() {
   const note = getCurrentNote();
 
-  if(!note) return;
+  if (!note) return;
 
-  if(!note.id){
+  if (!note.id) {
     notes = notes.filter(n => n !== note);
     closeEditor();
     return;
@@ -190,7 +204,7 @@ function deleteCurrentNote(){
   closeEditor();
 }
 
-function renderNotes(){
+function renderNotes() {
   const keyword = searchInput.value.trim().toLowerCase();
 
   const visible = notes
@@ -199,7 +213,7 @@ function renderNotes(){
       const text = `${note.title || ""} ${note.body || ""}`.toLowerCase();
       return text.includes(keyword);
     })
-    .sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 
   pinnedNotes.innerHTML = "";
   normalNotes.innerHTML = "";
@@ -213,7 +227,7 @@ function renderNotes(){
   });
 }
 
-function createCard(note){
+function createCard(note) {
   const card = document.createElement("article");
   card.className = "noteCard";
   card.onclick = () => openEditor(note);
@@ -232,10 +246,10 @@ function createCard(note){
   return card;
 }
 
-function insertTextToBody(text){
+function insertTextToBody(text) {
   const cleanText = text.trim();
 
-  if(!cleanText) return;
+  if (!cleanText) return;
 
   const before = bodyInput.value.trim();
 
@@ -247,10 +261,10 @@ function insertTextToBody(text){
   scheduleAutoSave();
 }
 
-function setupVoiceInput(){
+function setupVoiceInput() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  if(!SpeechRecognition){
+  if (!SpeechRecognition) {
     micBtn.disabled = true;
     micBtn.textContent = "×";
     alert("このブラウザは音声入力に対応していません");
@@ -276,7 +290,7 @@ function setupVoiceInput(){
   };
 
   recognition.onerror = event => {
-    console.log("音声入力エラー",event.error);
+    console.log("音声入力エラー", event.error);
     isRecording = false;
     micBtn.classList.remove("recording");
     micBtn.textContent = "🎤";
@@ -285,58 +299,58 @@ function setupVoiceInput(){
   recognition.onresult = event => {
     let finalText = "";
 
-    for(let i = event.resultIndex; i < event.results.length; i++){
+    for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i];
       const transcript = result[0].transcript;
 
-      if(result.isFinal){
+      if (result.isFinal) {
         finalText += transcript;
       }
     }
 
-    if(finalText.trim()){
+    if (finalText.trim()) {
       insertTextToBody(finalText);
     }
   };
 }
 
-function startVoiceInput(){
-  if(!recognition){
+function startVoiceInput() {
+  if (!recognition) {
     alert("音声入力機能が使えません");
     return;
   }
 
   bodyInput.focus();
 
-  try{
+  try {
     recognition.start();
-  }catch(e){
+  } catch (e) {
     console.log(e);
   }
 }
 
-function stopVoiceInput(){
-  if(recognition && isRecording){
+function stopVoiceInput() {
+  if (recognition && isRecording) {
     recognition.stop();
   }
 }
 
-function toggleVoiceInput(){
-  if(isRecording){
+function toggleVoiceInput() {
+  if (isRecording) {
     stopVoiceInput();
-  }else{
+  } else {
     startVoiceInput();
   }
 }
 
-addBtn.addEventListener("click",createNote);
-backBtn.addEventListener("click",closeEditor);
-micBtn.addEventListener("click",toggleVoiceInput);
-pinBtn.addEventListener("click",togglePin);
-deleteBtn.addEventListener("click",deleteCurrentNote);
-searchInput.addEventListener("input",renderNotes);
-titleInput.addEventListener("input",scheduleAutoSave);
-bodyInput.addEventListener("input",scheduleAutoSave);
+addBtn.addEventListener("click", createNote);
+backBtn.addEventListener("click", closeEditor);
+micBtn.addEventListener("click", toggleVoiceInput);
+pinBtn.addEventListener("click", togglePin);
+deleteBtn.addEventListener("click", deleteCurrentNote);
+searchInput.addEventListener("input", renderNotes);
+titleInput.addEventListener("input", scheduleAutoSave);
+bodyInput.addEventListener("input", scheduleAutoSave);
 
 setupVoiceInput();
 
