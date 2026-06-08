@@ -1,4 +1,4 @@
-const STORAGE_KEY = "left_keep_memo_v1";
+const GAS_API_URL = "https://script.google.com/macros/s/AKfycbx0sqRtjVr1X7tNjUTGFtdbV3B9KGuM0qnjJ-DLADircAqqUj-WbIot_3A-MYQI9n-FdA/exec";
 
 let notes = [];
 let currentId = null;
@@ -19,47 +19,109 @@ const deleteBtn = document.getElementById("deleteBtn");
 const titleInput = document.getElementById("titleInput");
 const bodyInput = document.getElementById("bodyInput");
 
-function loadNotes(){
-  const raw = localStorage.getItem(STORAGE_KEY);
-  notes = raw ? JSON.parse(raw) : [];
+function setStatus(text){
+  console.log(text);
 }
 
-function saveNotes(){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+async function apiGetNotes(){
+  setStatus("読み込み中");
+
+  const res = await fetch(GAS_API_URL + "?action=getNotes");
+  const data = await res.json();
+
+  if(!data.success){
+    throw new Error(data.message || "読み込み失敗");
+  }
+
+  notes = data.notes || [];
+  renderNotes();
+
+  setStatus("同期済み");
+}
+
+async function apiSaveNote(note){
+  setStatus("保存中");
+
+  const res = await fetch(GAS_API_URL,{
+    method:"POST",
+    body:JSON.stringify({
+      action:"saveNote",
+      note:note
+    })
+  });
+
+  const data = await res.json();
+
+  if(!data.success){
+    throw new Error(data.message || "保存失敗");
+  }
+
+  note.id = data.id;
+  note.updatedAt = data.updatedAt;
+
+  renderNotes();
+  setStatus("保存済み");
+}
+
+async function apiDeleteNote(id){
+  setStatus("削除中");
+
+  const res = await fetch(GAS_API_URL,{
+    method:"POST",
+    body:JSON.stringify({
+      action:"deleteNote",
+      id:id
+    })
+  });
+
+  const data = await res.json();
+
+  if(!data.success){
+    throw new Error(data.message || "削除失敗");
+  }
+
+  notes = notes.filter(note => note.id !== id);
+  renderNotes();
+
+  setStatus("削除済み");
 }
 
 function createNote(){
   const now = new Date().toISOString();
 
   const note = {
-    id: crypto.randomUUID(),
-    title: "",
-    body: "",
-    pinned: false,
-    deleted: false,
-    createdAt: now,
-    updatedAt: now
+    id:"",
+    title:"",
+    body:"",
+    pinned:false,
+    deleted:false,
+    createdAt:now,
+    updatedAt:now
   };
 
   notes.unshift(note);
-  saveNotes();
-  openEditor(note.id);
+  openEditor(note);
 }
 
-function openEditor(id){
-  currentId = id;
+function openEditor(note){
+  currentId = note.id || "";
 
-  const note = notes.find(n => n.id === id);
-  if(!note) return;
-
-  titleInput.value = note.title;
-  bodyInput.value = note.body;
+  titleInput.value = note.title || "";
+  bodyInput.value = note.body || "";
   pinBtn.textContent = note.pinned ? "固定解除" : "固定";
 
   listScreen.classList.remove("active");
   editScreen.classList.add("active");
 
-  setTimeout(() => bodyInput.focus(), 120);
+  setTimeout(() => bodyInput.focus(),120);
+}
+
+function getCurrentNote(){
+  if(currentId){
+    return notes.find(note => note.id === currentId);
+  }
+
+  return notes[0];
 }
 
 function closeEditor(){
@@ -74,42 +136,57 @@ function closeEditor(){
 }
 
 function autoSaveNow(){
-  if(!currentId) return;
+  const note = getCurrentNote();
 
-  const note = notes.find(n => n.id === currentId);
   if(!note) return;
 
   note.title = titleInput.value.trim();
   note.body = bodyInput.value.trim();
   note.updatedAt = new Date().toISOString();
 
-  saveNotes();
+  apiSaveNote(note).catch(error => {
+    console.error(error);
+    alert("保存失敗: " + error.message);
+  });
 }
 
 function scheduleAutoSave(){
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(autoSaveNow, 600);
+  saveTimer = setTimeout(autoSaveNow,800);
 }
 
 function togglePin(){
-  const note = notes.find(n => n.id === currentId);
+  const note = getCurrentNote();
+
   if(!note) return;
 
   note.pinned = !note.pinned;
   note.updatedAt = new Date().toISOString();
 
   pinBtn.textContent = note.pinned ? "固定解除" : "固定";
-  saveNotes();
+
+  apiSaveNote(note).catch(error => {
+    console.error(error);
+    alert("固定保存失敗: " + error.message);
+  });
 }
 
 function deleteCurrentNote(){
-  const note = notes.find(n => n.id === currentId);
+  const note = getCurrentNote();
+
   if(!note) return;
 
-  note.deleted = true;
-  note.updatedAt = new Date().toISOString();
+  if(!note.id){
+    notes = notes.filter(n => n !== note);
+    closeEditor();
+    return;
+  }
 
-  saveNotes();
+  apiDeleteNote(note.id).catch(error => {
+    console.error(error);
+    alert("削除失敗: " + error.message);
+  });
+
   closeEditor();
 }
 
@@ -119,7 +196,7 @@ function renderNotes(){
   const visible = notes
     .filter(note => !note.deleted)
     .filter(note => {
-      const text = `${note.title} ${note.body}`.toLowerCase();
+      const text = `${note.title || ""} ${note.body || ""}`.toLowerCase();
       return text.includes(keyword);
     })
     .sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
@@ -127,11 +204,11 @@ function renderNotes(){
   pinnedNotes.innerHTML = "";
   normalNotes.innerHTML = "";
 
-  visible.filter(n => n.pinned).forEach(note => {
+  visible.filter(note => note.pinned).forEach(note => {
     pinnedNotes.appendChild(createCard(note));
   });
 
-  visible.filter(n => !n.pinned).forEach(note => {
+  visible.filter(note => !note.pinned).forEach(note => {
     normalNotes.appendChild(createCard(note));
   });
 }
@@ -139,7 +216,7 @@ function renderNotes(){
 function createCard(note){
   const card = document.createElement("article");
   card.className = "noteCard";
-  card.onclick = () => openEditor(note.id);
+  card.onclick = () => openEditor(note);
 
   const title = document.createElement("div");
   title.className = "noteTitle";
@@ -158,10 +235,7 @@ function createCard(note){
 function insertTextToBody(text){
   const cleanText = text.trim();
 
-  if(!cleanText){
-    console.log("空文字のため挿入なし");
-    return;
-  }
+  if(!cleanText) return;
 
   const before = bodyInput.value.trim();
 
@@ -171,14 +245,10 @@ function insertTextToBody(text){
 
   bodyInput.focus();
   scheduleAutoSave();
-
-  console.log("本文へ挿入:", cleanText);
 }
 
 function setupVoiceInput(){
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  console.log("SpeechRecognition:", SpeechRecognition);
 
   if(!SpeechRecognition){
     micBtn.disabled = true;
@@ -197,83 +267,35 @@ function setupVoiceInput(){
     isRecording = true;
     micBtn.classList.add("recording");
     micBtn.textContent = "■";
-    console.log("音声入力開始");
   };
 
   recognition.onend = () => {
     isRecording = false;
     micBtn.classList.remove("recording");
     micBtn.textContent = "🎤";
-    console.log("音声入力終了");
   };
 
   recognition.onerror = event => {
-    console.log("音声入力エラー:", event.error);
-
+    console.log("音声入力エラー",event.error);
     isRecording = false;
     micBtn.classList.remove("recording");
     micBtn.textContent = "🎤";
   };
 
-  recognition.onaudiostart = () => {
-    console.log("音声入力デバイス開始");
-  };
-
-  recognition.onaudioend = () => {
-    console.log("音声入力デバイス終了");
-  };
-
-  recognition.onsoundstart = () => {
-    console.log("音を検知しました");
-  };
-
-  recognition.onsoundend = () => {
-    console.log("音が終了しました");
-  };
-
-  recognition.onspeechstart = () => {
-    console.log("音声を検知しました");
-  };
-
-  recognition.onspeechend = () => {
-    console.log("音声が終了しました");
-  };
-
-  recognition.onnomatch = () => {
-    console.log("認識できませんでした");
-  };
-
   recognition.onresult = event => {
-    console.log("onresult発火", event);
-    console.log("event.results:", event.results);
-
     let finalText = "";
-    let interimText = "";
 
     for(let i = event.resultIndex; i < event.results.length; i++){
       const result = event.results[i];
       const transcript = result[0].transcript;
 
-      console.log("認識結果:", transcript);
-      console.log("isFinal:", result.isFinal);
-
       if(result.isFinal){
         finalText += transcript;
-      }else{
-        interimText += transcript;
       }
     }
 
-    console.log("途中:", interimText);
-    console.log("確定:", finalText);
-
     if(finalText.trim()){
       insertTextToBody(finalText);
-      return;
-    }
-
-    if(interimText.trim()){
-      console.log("途中結果を一時表示:", interimText);
     }
   };
 }
@@ -287,16 +309,14 @@ function startVoiceInput(){
   bodyInput.focus();
 
   try{
-    console.log("recognition.start 実行");
     recognition.start();
   }catch(e){
-    console.log("start error:", e);
+    console.log(e);
   }
 }
 
 function stopVoiceInput(){
   if(recognition && isRecording){
-    console.log("recognition.stop 実行");
     recognition.stop();
   }
 }
@@ -309,15 +329,18 @@ function toggleVoiceInput(){
   }
 }
 
-addBtn.addEventListener("click", createNote);
-backBtn.addEventListener("click", closeEditor);
-micBtn.addEventListener("click", toggleVoiceInput);
-pinBtn.addEventListener("click", togglePin);
-deleteBtn.addEventListener("click", deleteCurrentNote);
-searchInput.addEventListener("input", renderNotes);
-titleInput.addEventListener("input", scheduleAutoSave);
-bodyInput.addEventListener("input", scheduleAutoSave);
+addBtn.addEventListener("click",createNote);
+backBtn.addEventListener("click",closeEditor);
+micBtn.addEventListener("click",toggleVoiceInput);
+pinBtn.addEventListener("click",togglePin);
+deleteBtn.addEventListener("click",deleteCurrentNote);
+searchInput.addEventListener("input",renderNotes);
+titleInput.addEventListener("input",scheduleAutoSave);
+bodyInput.addEventListener("input",scheduleAutoSave);
 
-loadNotes();
-renderNotes();
 setupVoiceInput();
+
+apiGetNotes().catch(error => {
+  console.error(error);
+  alert("読み込み失敗: " + error.message);
+});
