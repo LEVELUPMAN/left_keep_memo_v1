@@ -5,6 +5,7 @@ let currentId = null;
 let saveTimer = null;
 let recognition = null;
 let isRecording = false;
+let saving = false;
 
 const listScreen = document.getElementById("listScreen");
 const editScreen = document.getElementById("editScreen");
@@ -39,6 +40,7 @@ function jsonp(action, params = {}) {
 
     const script = document.createElement("script");
     script.src = url.toString();
+
     script.onerror = () => {
       delete window[callbackName];
       script.remove();
@@ -50,8 +52,6 @@ function jsonp(action, params = {}) {
 }
 
 async function apiGetNotes() {
-  console.log("読み込み中");
-
   const data = await jsonp("getNotes");
 
   if (!data.success) {
@@ -60,32 +60,34 @@ async function apiGetNotes() {
 
   notes = data.notes || [];
   renderNotes();
-
-  console.log("同期済み");
 }
 
 async function apiSaveNote(note) {
-  console.log("保存中");
+  if (saving) return;
 
-  const data = await jsonp("saveNote", {
-    note: JSON.stringify(note)
-  });
+  saving = true;
 
-  if (!data.success) {
-    throw new Error(data.message || "保存失敗");
+  try {
+    const data = await jsonp("saveNote", {
+      note: JSON.stringify(note)
+    });
+
+    if (!data.success) {
+      throw new Error(data.message || "保存失敗");
+    }
+
+    note.id = data.id;
+    note.createdAt = data.createdAt;
+    note.updatedAt = data.updatedAt;
+    currentId = data.id;
+
+    renderNotes();
+  } finally {
+    saving = false;
   }
-
-  note.id = data.id;
-  note.updatedAt = data.updatedAt;
-
-  renderNotes();
-
-  console.log("保存済み");
 }
 
 async function apiDeleteNote(id) {
-  console.log("削除中");
-
   const data = await jsonp("deleteNote", {
     id: id
   });
@@ -96,21 +98,17 @@ async function apiDeleteNote(id) {
 
   notes = notes.filter(note => note.id !== id);
   renderNotes();
-
-  console.log("削除済み");
 }
 
 function createNote() {
-  const now = new Date().toISOString();
-
   const note = {
     id: "",
     title: "",
     body: "",
     pinned: false,
     deleted: false,
-    createdAt: now,
-    updatedAt: now
+    createdAt: "",
+    updatedAt: ""
   };
 
   notes.unshift(note);
@@ -132,7 +130,8 @@ function openEditor(note) {
 
 function getCurrentNote() {
   if (currentId) {
-    return notes.find(note => note.id === currentId);
+    const found = notes.find(note => note.id === currentId);
+    if (found) return found;
   }
 
   return notes[0];
@@ -145,7 +144,6 @@ function closeEditor() {
   editScreen.classList.remove("active");
   listScreen.classList.add("active");
 
-  currentId = null;
   renderNotes();
 }
 
@@ -156,7 +154,6 @@ function autoSaveNow() {
 
   note.title = titleInput.value.trim();
   note.body = bodyInput.value.trim();
-  note.updatedAt = new Date().toISOString();
 
   apiSaveNote(note).catch(error => {
     console.error(error);
@@ -166,7 +163,7 @@ function autoSaveNow() {
 
 function scheduleAutoSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(autoSaveNow, 800);
+  saveTimer = setTimeout(autoSaveNow, 1200);
 }
 
 function togglePin() {
@@ -175,7 +172,6 @@ function togglePin() {
   if (!note) return;
 
   note.pinned = !note.pinned;
-  note.updatedAt = new Date().toISOString();
 
   pinBtn.textContent = note.pinned ? "固定解除" : "固定";
 
@@ -213,7 +209,7 @@ function renderNotes() {
       const text = `${note.title || ""} ${note.body || ""}`.toLowerCase();
       return text.includes(keyword);
     })
-    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
 
   pinnedNotes.innerHTML = "";
   normalNotes.innerHTML = "";
